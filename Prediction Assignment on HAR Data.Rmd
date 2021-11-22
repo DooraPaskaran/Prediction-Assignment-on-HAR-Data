@@ -1,0 +1,146 @@
+---
+title: "Prediction Assignment on HAR Dataset"
+author: "Dooratharsini Paskaran"
+date: "11/17/2021"
+output: html_document
+---
+## Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. We use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.  
+The goal of this project is to predict the manner in which they did the exercise. We use the "classe" variable in the datasets. This report will describes how model build using cross validation and took the expected out of sample error. Finally predict 20 different test cases using the prediction model. 
+
+This document summarizes the write up for the Prediction Assignment on HAR data for the Coursera Practical Machine Learning course project.
+
+## Load required packages
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(caret)
+library(ggplot2)
+library(gbm)
+```
+
+## Download training and testing data
+
+```{r results='hide'}
+setwd("C:/MyFolders/Coursera/Course8/ProjectHARDataset")
+      
+if (!file.exists("C:/MyFolders/Coursera/Course8/ProjectHARDataset/pml-training.csv")){
+  fileurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+   download.file(fileurl, "pml-training.csv", method = "curl")
+}
+
+if (!file.exists("C:/MyFolders/Coursera/Course8/ProjectHARDataset/pml-testing.csv")){
+  fileurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+   download.file(fileurl, "pml-testing.csv", method = "curl")
+}
+```
+
+## Load the training and testing data
+
+```{r}
+trainHARData <- read.csv("C:/MyFolders/Coursera/Course8/ProjectHARDataset/pml-training.csv", header = TRUE)
+testHARData <- read.csv("C:/MyFolders/Coursera/Course8/ProjectHARDataset/pml-testing.csv", header = TRUE)
+
+```
+
+
+## Now split the training into to as actual testing and validation
+Here, we split the training data into training and validation datasets.70% of training data to actually train our model and the remaining 30% to validate it.
+```{r}
+set.seed(1213)
+
+inTrainHARData <- createDataPartition(y=trainHARData$classe, p=.7, list = FALSE)
+
+training <- trainHARData[inTrainHARData,]
+validation <- trainHARData[-inTrainHARData,]
+
+```
+
+## Removing zero covariates
+Next, we prepare the data for modeling. There are a number of variables that have zero variance or high missing values. To avoid using these variables in algorithms which gives meaningless predictions. Therefore, we remove zero covariates and almost all are missing variables for meaningful modeling.
+
+```{r}
+nzv <- nearZeroVar(training)
+training <- training[,-nzv]
+validation <- validation[,-nzv]
+dim(training)
+dim(validation)
+```
+
+## Removing NA columns
+
+```{r}
+allNA <- sapply(training,function(x) mean(is.na(x))) > 0.95
+training <- training[,allNA==FALSE]
+validation <- validation[,allNA==FALSE]
+training <- training[,-(1:5)]
+validation <- validation[,-(1:5)]
+dim(training)
+dim(validation)
+
+```
+
+
+Now we have clean data for building models.  
+We will build two models:  
+1. Random forest  
+2. Generalized boosted model  
+We train these in the training data of the actual training dataset and then test them in the validation set of the actual training dataset.  
+
+## Build Random Forest Model
+```{r, cache=TRUE}
+set.seed(1213)
+modFitRF <- train(classe ~., data=training, method="rf",
+                  trControl = trainControl(method="cv",number=3,verboseIter=FALSE))
+
+modFitRF$finalModel
+```
+
+
+## Build Generalised Boosted Model
+
+```{r, cache=TRUE}
+set.seed(1213)
+modFitGBM <- train(classe ~. , data = training, method = "gbm", verbose=FALSE , 
+                   trControl = trainControl(method="repeatedcv",number = 5,repeats = 1))
+print(modFitGBM)
+```
+
+
+## Validating the models
+Models built, here we check the performance of these two models in the validation dataset. We predict the values in the validation set, and then comparing the predictions with the actual values.
+```{r}
+predictionValidationModRF <- predict(modFitRF, validation)
+confusionMatrixRF <- confusionMatrix(predictionValidationModRF, as.factor(validation$classe))
+print(confusionMatrixRF)
+```
+
+```{r}
+predictionValidationModGBM <- predict(modFitGBM, validation)
+confusionMatrixGBM <- confusionMatrix(predictionValidationModGBM, as.factor(validation$classe))
+print(confusionMatrixGBM)
+```
+
+## Plots
+
+We investigate the generalized boosted model a bit further to see which variables have the highest relative importance.
+
+```{r}
+print(summary(modFitGBM))
+```
+
+The above list shows the importance of variables in GB Model. We see that num_window, roll_belt, and pitch_forearm are most important. We can checkout the feature plot below.
+```{r}
+featurePlot(x=training[, c("num_window","roll_belt","pitch_forearm")], y=training$classe, plot="pairs")
+```
+
+
+## Predict on the actual test data
+We see the random forest performs (Accuracy : 0.9969) better than the generalized boosted model (Accuracy : 0.9866). Let's test our model in the actual testing dataset.
+```{r}
+predictTestWithModRF <- predict(modFitRF, newdata = testHARData)
+print(predictTestWithModRF)
+```
+
+
+
